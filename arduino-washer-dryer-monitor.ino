@@ -1,24 +1,26 @@
 #include <ESP8266WiFi.h>
+#include <SimpleTimer.h>
 
 const char* ssid     = "satin2";
 const char* password = "Henrik123";
 const char* host = "192.168.0.109";
 
+int hsDeviceRefId = 180;
 int photocellPin = 0;
 int photocellReading;
 int previousDeviceValue = 0;
 int deviceValue;
+SimpleTimer timer;
 
 void setup() {
 	Serial.begin(115200);
-	delay(10);
 
 	// We start by connecting to a WiFi network
 
-	Serial.println();
-	Serial.println();
-	Serial.print("Connecting to ");
-	Serial.println(ssid);
+	// Serial.println();
+	// Serial.println();
+	// Serial.print("Connecting to ");
+	// Serial.println(ssid);
 
 	/* Explicitly set the ESP8266 to be a WiFi-client, otherwise, it by default,
 		would try to act as both a client and an access-point and could cause
@@ -26,15 +28,16 @@ void setup() {
 	WiFi.mode(WIFI_STA);
 	WiFi.begin(ssid, password);
 
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(500);
-		Serial.print(".");
-	}
+	// while (WiFi.status() != WL_CONNECTED) {
+	// 	delay(500);
+	// 	Serial.print(".");
+	// }
 
-	Serial.println("");
-	Serial.println("WiFi connected");  
-	Serial.println("IP address: ");
-	Serial.println(WiFi.localIP());
+	// Serial.println("");
+	// Serial.println("WiFi connected");  
+	// Serial.println("IP address: ");
+	// Serial.println(WiFi.localIP());
+	timer.setInterval(5000, checkStatusChange);
 }
 
 void readLightSensorLevel() {
@@ -63,7 +66,9 @@ void updateHomeSeer() {
 	}
 
 	// We now create a URI for the request
-	String url = "/JSON?request=controldevicebyvalue&ref=180&value=";
+	String url = "/JSON?request=controldevicebyvalue&ref=";
+	url += hsDeviceRefId;
+	url += "&value=";
 	url += deviceValue;
 
 	Serial.print("Requesting URL: ");
@@ -92,12 +97,13 @@ void updateHomeSeer() {
 	Serial.println("closing connection");
 }
 
-void loop() {
-	delay(5000);
+void checkStatusChange() {
 	readLightSensorLevel();
-	
 	if(previousDeviceValue != deviceValue) {
 		previousDeviceValue = deviceValue;
 		updateHomeSeer();
 	}
+}
+void loop() {
+	timer.run();
 }
