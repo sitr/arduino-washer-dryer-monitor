@@ -1,71 +1,90 @@
 #include <ESP8266WiFi.h>
 #include <SimpleTimer.h>
+#include <ArduinoJson.h>
 
 const char* ssid     = "satin2";
 const char* password = "Henrik123";
 const char* host = "192.168.0.109";
+const unsigned long HTTP_TIMEOUT = 10000;
+const size_t MAX_CONTENT_SIZE = 512;
 
 int hsDeviceRefId = 180;
 int photocellPin = 0;
+int statusLedPin = D1;
 int photocellReading;
 int previousDeviceValue = 0;
 int deviceValue;
 SimpleTimer timer;
+WiFiClient client;
+
+struct DeviceData {
+	char ref[4];
+	char value[3];
+};
 
 void setup() {
+	pinMode(statusLedPin, OUTPUT);
 	Serial.begin(115200);
-
-	// We start by connecting to a WiFi network
-
-	// Serial.println();
-	// Serial.println();
-	// Serial.print("Connecting to ");
-	// Serial.println(ssid);
-
-	/* Explicitly set the ESP8266 to be a WiFi-client, otherwise, it by default,
-		would try to act as both a client and an access-point and could cause
-		network-issues with your other WiFi-devices on your WiFi-network. */
 	WiFi.mode(WIFI_STA);
 	WiFi.begin(ssid, password);
-
-	// while (WiFi.status() != WL_CONNECTED) {
-	// 	delay(500);
-	// 	Serial.print(".");
-	// }
-
-	// Serial.println("");
-	// Serial.println("WiFi connected");  
-	// Serial.println("IP address: ");
-	// Serial.println(WiFi.localIP());
 	timer.setInterval(5000, checkStatusChange);
 }
 
 void readLightSensorLevel() {
 	photocellReading = analogRead(photocellPin);
-	Serial.print("Analog reading = ");
-	Serial.println(photocellReading);
 	// Map analog readings to HS3 high and low values
 	deviceValue = 0;
 	if(photocellReading > 500)
 		deviceValue = 100;
-
-	Serial.print("Mapped value = ");
-	Serial.println(deviceValue);
 }
 
-void updateHomeSeer() {
-		Serial.print("connecting to ");
-	Serial.println(host);
-  
-	// Use WiFiClient class to create TCP connections
-	WiFiClient client;
-	const int httpPort = 80;
-	if (!client.connect(host, httpPort)) {
-		Serial.println("connection failed");
-		return;
-	}
+// Skip HTTP headers so that we are at the beginning of the response's body
+bool skipResponseHeaders() {
+	// HTTP headers end with an empty line
+	char endOfHeaders[] = "\r\n\r\n";
+	client.setTimeout(HTTP_TIMEOUT);
+	bool ok = client.find(endOfHeaders);
 
-	// We now create a URI for the request
+	if (!ok) {
+		Serial.println("No response or invalid response!");
+	}
+	return ok;
+}
+
+bool readReponseContent(struct DeviceData* deviceData) {
+	// Compute optimal size of the JSON buffer according to what we need to parse.
+	// This is only required if you use StaticJsonBuffer.
+	const size_t BUFFER_SIZE =
+		JSON_OBJECT_SIZE(3)    // the root object has 3 elements
+		+ JSON_OBJECT_SIZE(16)  // the "device" object has 16 elements
+		+ JSON_OBJECT_SIZE(6)  // the "device_type" object has 6 elements
+		+ MAX_CONTENT_SIZE;    // additional space for strings
+
+	DynamicJsonBuffer jsonBuffer(BUFFER_SIZE);
+	JsonObject& root = jsonBuffer.parseObject(client);
+	if (!root.success()) {
+		Serial.println("JSON parsing failed!");
+		return false;
+	}
+	strcpy(deviceData->ref, root["Devices"][0]["ref"]);
+	strcpy(deviceData->value, root["Devices"][0]["value"]);
+	return true;
+}
+
+bool connect() {
+  Serial.print("Connect to ");
+  Serial.println(host);
+
+  bool ok = client.connect(host, 80);
+
+  Serial.println(ok ? "Connected" : "Connection Failed!");
+  return ok;
+}
+
+bool sendRequest() {
+	Serial.print("connecting to ");
+	Serial.println(host);
+
 	String url = "/JSON?request=controldevicebyvalue&ref=";
 	url += hsDeviceRefId;
 	url += "&value=";
@@ -74,7 +93,6 @@ void updateHomeSeer() {
 	Serial.print("Requesting URL: ");
 	Serial.println(url);
 
-	// This will send the request to the server
 	client.print(String("GET ") + url + " HTTP/1.1\r\n" +
 					"Host: " + host + "\r\n" + 
 					"Connection: close\r\n\r\n");
@@ -83,25 +101,37 @@ void updateHomeSeer() {
 		if (millis() - timeout > 5000) {
 			Serial.println(">>> Client Timeout !");
 			client.stop();
-			return;
+			return false;
 		}
 	}
-  
-  // Read all the lines of the reply from server and print them to Serial
-	while(client.available()){
-		String line = client.readStringUntil('\r');
-		Serial.print(line);
-	}
+	return true;
+}
 
-	Serial.println();
-	Serial.println("closing connection");
+void disconnect() {
+	Serial.println("Disconnect");
+	client.stop();
+}
+
+void printUserData(const struct DeviceData* deviceData) {
+  Serial.print("Ref = ");
+  Serial.println(deviceData->ref);
+  Serial.print("Value = ");
+  Serial.println(deviceData->value);
 }
 
 void checkStatusChange() {
 	readLightSensorLevel();
 	if(previousDeviceValue != deviceValue) {
 		previousDeviceValue = deviceValue;
-		updateHomeSeer();
+		if (connect()) {
+			if (sendRequest() && skipResponseHeaders()) {
+				DeviceData deviceData;
+				if (readReponseContent(&deviceData)) {
+					printUserData(&deviceData);
+				}
+			}
+		}
+		disconnect();
 	}
 }
 void loop() {
