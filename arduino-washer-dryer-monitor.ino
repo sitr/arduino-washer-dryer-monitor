@@ -10,12 +10,15 @@ const int STATUS_ON = 100;
 const int STATUS_OFF = 0;
 const size_t MAX_CONTENT_SIZE = 512;
 
-int dryerDeviceId = 180;
-int photocellPin = 0;
-int statusLedPin = D1;
-int photocellReading;
+int dryerPhotocellPin = 0;
+int dryerStatusLedPin = D1;
 int dryerStatus = STATUS_OFF;
-int deviceValue;
+int dryerDeviceId = 180;
+int washerPhotocellPin = 1;
+int washerStatusLedPin = D2;
+int washerStatus = STATUS_OFF;
+int washerDeviceId = 181;
+
 SimpleTimer timer;
 WiFiClient client;
 
@@ -25,15 +28,16 @@ struct DeviceData {
 };
 
 void setup() {
-	pinMode(statusLedPin, OUTPUT);
+	pinMode(dryerStatusLedPin, OUTPUT);
+    pinMode(washerStatusLedPin, OUTPUT);
 	Serial.begin(115200);
 	WiFi.mode(WIFI_STA);
 	WiFi.begin(ssid, password);
 	timer.setInterval(100, checkStatusChange);
 }
 
-int getStatusFromLightSensor() {
-	photocellReading = analogRead(photocellPin);
+int getStatusFromLightSensor(int sensorPin) {
+	int photocellReading = analogRead(sensorPin);
 	// Map analog readings to HS3 on off status value
 	int status = STATUS_OFF;
 	if(photocellReading > 500)
@@ -114,42 +118,61 @@ void printUserData(const struct DeviceData* deviceData) {
   Serial.println(deviceData->value);
 }
 
-void fastToggleLed() {
+void fastToggleLed(int ledPin) {
   static unsigned long fastLedTimer;
-  if (millis() - fastLedTimer >= 100UL)
-  {
-    digitalWrite(statusLedPin, !digitalRead(statusLedPin));
+  if (millis() - fastLedTimer >= 100UL) {
+    digitalWrite(ledPin, !digitalRead(ledPin));
     fastLedTimer = millis();
   }
 }
 
-void slowToggleLed () {
+void slowToggleLed (int ledPin) {
   static unsigned long slowLedTimer;
-  if (millis() - slowLedTimer >= 1250UL)
-  {
-    digitalWrite(statusLedPin, !digitalRead(statusLedPin));
+  if (millis() - slowLedTimer >= 1250UL) {
+    digitalWrite(ledPin, !digitalRead(ledPin));
     slowLedTimer = millis();
   }
 }
 
-void checkStatusChange() {
-	int sensorStatus = getStatusFromLightSensor();
-	if(dryerStatus != sensorStatus) {
+void updateHomeSeer(int deviceId, int deviceStatus) {
+    if (connect()) {
+        if (sendRequest(deviceId, deviceStatus) && skipResponseHeaders()) {
+            DeviceData deviceData;
+            if (readReponseContent(&deviceData)) {
+                printUserData(&deviceData);
+            }
+        }
+    }
+    disconnect();
+}
+
+void checkDryerStatus() {
+    int sensorStatus = getStatusFromLightSensor(dryerPhotocellPin);
+    if(dryerStatus != sensorStatus) {
 		dryerStatus = sensorStatus;
-		if (connect()) {
-			if (sendRequest(dryerDeviceId, dryerStatus) && skipResponseHeaders()) {
-				DeviceData deviceData;
-				if (readReponseContent(&deviceData)) {
-					printUserData(&deviceData);
-				}
-			}
-		}
-		disconnect();
+		updateHomeSeer(dryerDeviceId, dryerStatus);
 	}
     if(dryerStatus == STATUS_OFF)
-        slowToggleLed();
+        slowToggleLed(dryerStatusLedPin);
     else
-        fastToggleLed();
+        fastToggleLed(dryerStatusLedPin);
+}
+
+void checkWasherStatus() {
+    int sensorStatus = getStatusFromLightSensor(washerPhotocellPin);
+    if(washerStatus != sensorStatus) {
+		washerStatus = sensorStatus;
+		updateHomeSeer(washerDeviceId, washerStatus);
+	}
+    if(washerStatus == STATUS_OFF)
+        slowToggleLed(washerStatusLedPin);
+    else
+        fastToggleLed(washerStatusLedPin);
+}
+
+void checkStatusChange() {
+	checkDryerStatus();
+    checkWasherStatus();
 }
 
 void loop() {
