@@ -4,15 +4,17 @@
 
 const char* ssid     = "satin2";
 const char* password = "Henrik123";
-const char* host = "192.168.0.109";
+const char* homeSeerServer = "192.168.0.109";
 const unsigned long HTTP_TIMEOUT = 10000;
+const int STATUS_ON = 100;
+const int STATUS_OFF = 0;
 const size_t MAX_CONTENT_SIZE = 512;
 
-int hsDeviceRefId = 180;
+int dryerDeviceId = 180;
 int photocellPin = 0;
 int statusLedPin = D1;
 int photocellReading;
-int previousDeviceValue = 0;
+int dryerStatus = STATUS_OFF;
 int deviceValue;
 SimpleTimer timer;
 WiFiClient client;
@@ -27,15 +29,16 @@ void setup() {
 	Serial.begin(115200);
 	WiFi.mode(WIFI_STA);
 	WiFi.begin(ssid, password);
-	timer.setInterval(5000, checkStatusChange);
+	timer.setInterval(100, checkStatusChange);
 }
 
-void readLightSensorLevel() {
+int getStatusFromLightSensor() {
 	photocellReading = analogRead(photocellPin);
-	// Map analog readings to HS3 high and low values
-	deviceValue = 0;
+	// Map analog readings to HS3 on off status value
+	int status = STATUS_OFF;
 	if(photocellReading > 500)
-		deviceValue = 100;
+		status = STATUS_ON;
+    return status;
 }
 
 // Skip HTTP headers so that we are at the beginning of the response's body
@@ -52,15 +55,7 @@ bool skipResponseHeaders() {
 }
 
 bool readReponseContent(struct DeviceData* deviceData) {
-	// Compute optimal size of the JSON buffer according to what we need to parse.
-	// This is only required if you use StaticJsonBuffer.
-	const size_t BUFFER_SIZE =
-		JSON_OBJECT_SIZE(3)    // the root object has 3 elements
-		+ JSON_OBJECT_SIZE(16)  // the "device" object has 16 elements
-		+ JSON_OBJECT_SIZE(6)  // the "device_type" object has 6 elements
-		+ MAX_CONTENT_SIZE;    // additional space for strings
-
-	DynamicJsonBuffer jsonBuffer(BUFFER_SIZE);
+	DynamicJsonBuffer jsonBuffer(0);
 	JsonObject& root = jsonBuffer.parseObject(client);
 	if (!root.success()) {
 		Serial.println("JSON parsing failed!");
@@ -73,28 +68,28 @@ bool readReponseContent(struct DeviceData* deviceData) {
 
 bool connect() {
   Serial.print("Connect to ");
-  Serial.println(host);
+  Serial.println(homeSeerServer);
 
-  bool ok = client.connect(host, 80);
+  bool ok = client.connect(homeSeerServer, 80);
 
   Serial.println(ok ? "Connected" : "Connection Failed!");
   return ok;
 }
 
-bool sendRequest() {
+bool sendRequest(int deviceId, int statusValue) {
 	Serial.print("connecting to ");
-	Serial.println(host);
+	Serial.println(homeSeerServer);
 
 	String url = "/JSON?request=controldevicebyvalue&ref=";
-	url += hsDeviceRefId;
+	url += deviceId;
 	url += "&value=";
-	url += deviceValue;
+	url += statusValue;
 
 	Serial.print("Requesting URL: ");
 	Serial.println(url);
 
 	client.print(String("GET ") + url + " HTTP/1.1\r\n" +
-					"Host: " + host + "\r\n" + 
+					"homeSeerServer: " + homeSeerServer + "\r\n" + 
 					"Connection: close\r\n\r\n");
 	unsigned long timeout = millis();
 	while (client.available() == 0) {
@@ -119,12 +114,30 @@ void printUserData(const struct DeviceData* deviceData) {
   Serial.println(deviceData->value);
 }
 
+void fastToggleLed() {
+  static unsigned long fastLedTimer;
+  if (millis() - fastLedTimer >= 100UL)
+  {
+    digitalWrite(statusLedPin, !digitalRead(statusLedPin));
+    fastLedTimer = millis();
+  }
+}
+
+void slowToggleLed () {
+  static unsigned long slowLedTimer;
+  if (millis() - slowLedTimer >= 1250UL)
+  {
+    digitalWrite(statusLedPin, !digitalRead(statusLedPin));
+    slowLedTimer = millis();
+  }
+}
+
 void checkStatusChange() {
-	readLightSensorLevel();
-	if(previousDeviceValue != deviceValue) {
-		previousDeviceValue = deviceValue;
+	int sensorStatus = getStatusFromLightSensor();
+	if(dryerStatus != sensorStatus) {
+		dryerStatus = sensorStatus;
 		if (connect()) {
-			if (sendRequest() && skipResponseHeaders()) {
+			if (sendRequest(dryerDeviceId, dryerStatus) && skipResponseHeaders()) {
 				DeviceData deviceData;
 				if (readReponseContent(&deviceData)) {
 					printUserData(&deviceData);
@@ -133,7 +146,12 @@ void checkStatusChange() {
 		}
 		disconnect();
 	}
+    if(dryerStatus == STATUS_OFF)
+        slowToggleLed();
+    else
+        fastToggleLed();
 }
+
 void loop() {
 	timer.run();
 }
