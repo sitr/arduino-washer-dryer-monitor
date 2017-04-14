@@ -8,13 +8,13 @@ const char* homeSeerServer = "192.168.0.109";
 const unsigned long HTTP_TIMEOUT = 10000;
 const int STATUS_ON = 100;
 const int STATUS_OFF = 0;
-const size_t MAX_CONTENT_SIZE = 512;
 
-int dryerPhotocellPin = 0;
+int photocellReaderPin = 0;
+int dryerPhotocellPin = D6;
 int dryerStatusLedPin = D1;
 int dryerStatus = STATUS_OFF;
 int dryerDeviceId = 180;
-int washerPhotocellPin = 1;
+int washerPhotocellPin = D7;
 int washerStatusLedPin = D2;
 int washerStatus = STATUS_OFF;
 int washerDeviceId = 181;
@@ -28,16 +28,21 @@ struct DeviceData {
 };
 
 void setup() {
+    pinMode(washerPhotocellPin, OUTPUT);
+    pinMode(dryerPhotocellPin, OUTPUT);
 	pinMode(dryerStatusLedPin, OUTPUT);
     pinMode(washerStatusLedPin, OUTPUT);
+    digitalWrite(dryerPhotocellPin, LOW);
+    digitalWrite(washerPhotocellPin, LOW);
 	Serial.begin(115200);
 	WiFi.mode(WIFI_STA);
 	WiFi.begin(ssid, password);
 	timer.setInterval(100, checkStatusChange);
 }
 
-int getStatusFromLightSensor(int sensorPin) {
-	int photocellReading = analogRead(sensorPin);
+int getStatusFromLightSensor() {
+	int photocellReading = analogRead(photocellReaderPin);
+    Serial.println(photocellReading);
 	// Map analog readings to HS3 on off status value
 	int status = STATUS_OFF;
 	if(photocellReading > 500)
@@ -147,10 +152,13 @@ void updateHomeSeer(int deviceId, int deviceStatus) {
 }
 
 void checkDryerStatus() {
-    int sensorStatus = getStatusFromLightSensor(dryerPhotocellPin);
+    digitalWrite(dryerPhotocellPin, HIGH);
+    delay(200);
+    int sensorStatus = getStatusFromLightSensor();
+    digitalWrite(dryerPhotocellPin, LOW);
     if(dryerStatus != sensorStatus) {
 		dryerStatus = sensorStatus;
-		updateHomeSeer(dryerDeviceId, dryerStatus);
+		//updateHomeSeer(dryerDeviceId, dryerStatus);
 	}
     if(dryerStatus == STATUS_OFF)
         slowToggleLed(dryerStatusLedPin);
@@ -159,10 +167,13 @@ void checkDryerStatus() {
 }
 
 void checkWasherStatus() {
-    int sensorStatus = getStatusFromLightSensor(washerPhotocellPin);
+    digitalWrite(washerPhotocellPin, HIGH);
+    delay(200);
+    int sensorStatus = getStatusFromLightSensor();
+    digitalWrite(washerPhotocellPin, LOW);
     if(washerStatus != sensorStatus) {
 		washerStatus = sensorStatus;
-		updateHomeSeer(washerDeviceId, washerStatus);
+		//updateHomeSeer(washerDeviceId, washerStatus);
 	}
     if(washerStatus == STATUS_OFF)
         slowToggleLed(washerStatusLedPin);
