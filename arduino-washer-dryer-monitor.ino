@@ -6,17 +6,17 @@ const char* ssid     = "satin2";
 const char* password = "Henrik123";
 const char* homeSeerServer = "192.168.0.109";
 const unsigned long HTTP_TIMEOUT = 10000;
-const int STATUS_ON = 100;
-const int STATUS_OFF = 0;
+const int STATUS_RUNNING = 100;
+const int STATUS_FINISHED = 0;
 
 int photocellReaderPin = 0;
 int dryerPhotocellPin = D6;
 int dryerStatusLedPin = D1;
-int dryerStatus = STATUS_OFF;
+int dryerStatus = STATUS_FINISHED;
 int dryerDeviceId = 180;
 int washerPhotocellPin = D7;
 int washerStatusLedPin = D2;
-int washerStatus = STATUS_OFF;
+int washerStatus = STATUS_FINISHED;
 int washerDeviceId = 181;
 
 SimpleTimer timer;
@@ -42,11 +42,10 @@ void setup() {
 
 int getStatusFromLightSensor() {
 	int photocellReading = analogRead(photocellReaderPin);
-    Serial.println(photocellReading);
 	// Map analog readings to HS3 on off status value
-	int status = STATUS_OFF;
+	int status = STATUS_FINISHED;
 	if(photocellReading > 500)
-		status = STATUS_ON;
+        status = STATUS_RUNNING;
     return status;
 }
 
@@ -153,32 +152,32 @@ void updateHomeSeer(int deviceId, int deviceStatus) {
 
 void checkDryerStatus() {
     digitalWrite(dryerPhotocellPin, HIGH);
-    delay(200);
+    delay(100);
     int sensorStatus = getStatusFromLightSensor();
     digitalWrite(dryerPhotocellPin, LOW);
     if(dryerStatus != sensorStatus) {
 		dryerStatus = sensorStatus;
-		//updateHomeSeer(dryerDeviceId, dryerStatus);
+		updateHomeSeer(dryerDeviceId, dryerStatus);
 	}
-    if(dryerStatus == STATUS_OFF)
-        slowToggleLed(dryerStatusLedPin);
-    else
+    if(dryerStatus == STATUS_RUNNING)
         fastToggleLed(dryerStatusLedPin);
+    else
+        slowToggleLed(dryerStatusLedPin);
 }
 
 void checkWasherStatus() {
     digitalWrite(washerPhotocellPin, HIGH);
-    delay(200);
+    delay(100);
     int sensorStatus = getStatusFromLightSensor();
     digitalWrite(washerPhotocellPin, LOW);
     if(washerStatus != sensorStatus) {
 		washerStatus = sensorStatus;
-		//updateHomeSeer(washerDeviceId, washerStatus);
+		updateHomeSeer(washerDeviceId, washerStatus);
 	}
-    if(washerStatus == STATUS_OFF)
-        slowToggleLed(washerStatusLedPin);
-    else
+    if(washerStatus == STATUS_RUNNING)
         fastToggleLed(washerStatusLedPin);
+    else
+        slowToggleLed(washerStatusLedPin);
 }
 
 void checkStatusChange() {
